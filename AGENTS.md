@@ -5,7 +5,7 @@
 ```bash
 nimble install -y
 nimble testAll    # Nim debug + release + C ABI
-nimble pyTest     # Cython + pytest (needs libUniPercept.so)
+nimble pyTest     # Cython + pytest (UniPercept.lib/.dylib/.so by platform)
 nimble example
 nimble coverage   # gcov + lcov -> coverage/ (needs lcov; linux/macOS)
 nimble docs       # nimib book + API reference -> pages/ (needs nimib)

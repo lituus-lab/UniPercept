@@ -10,9 +10,9 @@
 
 ```text
 UniPercept.nimble          package + tasks
-config.nims                --path to UniImage (untagged transition)
+config.nims                package-root build path
 vgraph.cfg                 layers gray<resize<hashes<decode<c_api, engines=[UniImage]
-src/UniPercept.nim         umbrella (facade: computeHashes, toHex, version)
+src/UniPercept.nim         umbrella (file helpers, toHex, version)
 src/UniPercept/gray.nim    grayscale (fixed-point luma) — pure
 src/UniPercept/resize.nim  grayscale box resize (fixed-point) — pure, imports gray
 src/UniPercept/hashes.nim  aHash/dHash/pHash/blockhash + hamming — imports gray+resize
@@ -49,4 +49,6 @@ LICENSE NOTICE CONTRIBUTING.md SECURITY.md .gitignore README.md AGENTS.md CLAUDE
 
 - `nimble testCi` + `testCiRelease` on ubuntu/macOS/Windows.
 - `nimble ctest` on linux/macOS/Windows.
-- `nimble pyTest` on linux/macOS/Windows.
+- Python build, tests and wheel on Linux/macOS/Windows.
+- Installed C archive and wheel consumption on all three systems.
+- Release wheels for CPython 3.9–3.14, sdist, GitHub release and PyPI.

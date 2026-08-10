@@ -35,14 +35,15 @@ docs: clarify clone map
 feat(core)!: drop the old accumulator API
 ```
 
-The `commitizen` CI job blocks the PR if any non-merge commit — or the PR
-title — does not match. The title matters because a squash-merge folds the
-whole PR into one commit whose subject is the title.
+The `commitizen` CI job validates the PR title. The title matters because a
+squash merge uses it as the resulting commit subject.
 
 ## Workflow
 
 1. Branch from `main`, one logical change per commit.
-2. Pass the gates: `nimble testAll`, `nimble pyTest`.
+2. Pass the gates: `nimble testAll`, `nimble pyTest`, `nimble pyWheel`,
+   `nimble pySdist`, `nimble example`, `nimble cexample`, `nimble lint`,
+   `nimble checkVGraph`, and `nimble docs`.
 3. Open a PR; CI runs the 3-OS Nim matrix + C ABI + Python.
 
 ## Pre-commit
@@ -67,4 +68,5 @@ pre-commit run --all-files
 ## Conventions
 
 See `ADRs/0004` and `AGENTS.md`. English comments, terse, describe what is done.
-NimContracts compiled away under `-d:release`; the C ABI clamps, never raises.
+NimContracts compiled away under `-d:release`; the C ABI never raises across
+the boundary and reports invalid inputs with the documented `UP_*` status.
