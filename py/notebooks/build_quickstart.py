@@ -59,8 +59,11 @@ def main():
         "name": "python3",
     }
     NotebookClient(nb, timeout=120, kernel_name="python3",
-                   resources={"metadata": {"path": os.path.dirname(HERE)}}).execute()
-    with open(OUT, "w") as f:
+                   resources={"metadata": {"path": HERE}}).execute()
+    for cell in nb.cells:
+        if cell.cell_type == "code":
+            cell.metadata.pop("execution", None)
+    with open(OUT, "w", encoding="utf-8") as f:
         nbf.write(nb, f)
     print(f"wrote {OUT}")
 
