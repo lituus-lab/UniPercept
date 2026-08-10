@@ -14,6 +14,11 @@ proc gradient(): GrayscaleImage =
       result.pixels[y * 16 + x] = byte(x * 17)
 
 suite "hashes":
+  test "invalid blockhash sizes return an empty sequence in every build mode":
+    let g = toGrayscale([1'u8], 1, 1, 1)
+    check blockhash(g, 0).len == 0
+    check blockhash(g, MaxBlockBits + 1).len == 0
+
   test "hamming(h, h) == 0 and similarity == 1.0":
     let img = gradient()
     let h = img.pHash()

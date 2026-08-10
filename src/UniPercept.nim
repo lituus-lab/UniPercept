@@ -8,6 +8,7 @@
 ## header `include/UniPercept.h`) and the Cython binding (`py/unipercept/`)
 ## expose the same surface to C and Python.
 import std/[os, strutils, sequtils]
+import contracts
 import UniPercept/gray
 export gray
 import UniPercept/resize
@@ -41,40 +42,65 @@ type
     hash*: Hash
     width*, height*: int
 
-proc computeHashes*(path: string): HashResult =
+proc computeHashes*(path: string): HashResult {.contractual.} =
   ## Decode `path` via UniImage and compute aHash/dHash/pHash/blockhash.
-  let img = loadImage(path)
-  let g = toGrayscale(img.data, img.width, img.height, img.channels)
-  result.aHash = aHash(g)
-  result.dHash = dHash(g)
-  result.pHash = pHash(g)
-  result.blockhash = blockhash(g)
+  require:
+    path.len > 0
+  ensure:
+    result.blockhash.len == 32
+  body:
+    let img = loadImage(path)
+    let g = toGrayscale(img.data, img.width, img.height, img.channels)
+    result.aHash = aHash(g)
+    result.dHash = dHash(g)
+    result.pHash = pHash(g)
+    result.blockhash = blockhash(g)
 
-proc phashInfo*(path: string): PHashResult =
+proc phashInfo*(path: string): PHashResult {.contractual.} =
   ## pHash and decoded dimensions of an image file.
-  let img = loadImage(path)
-  result.hash = pHash(toGrayscale(img.data, img.width, img.height, img.channels))
-  result.width = img.width
-  result.height = img.height
+  require:
+    path.len > 0
+  ensure:
+    result.width > 0 and result.height > 0
+  body:
+    let img = loadImage(path)
+    result.hash = pHash(toGrayscale(img.data, img.width, img.height, img.channels))
+    result.width = img.width
+    result.height = img.height
 
-proc phash*(path: string): Hash =
+proc phash*(path: string): Hash {.contractual.} =
   ## pHash of an image file. See `phashInfo` when dimensions are also needed.
-  phashInfo(path).hash
+  require:
+    path.len > 0
+  body:
+    result = phashInfo(path).hash
 
-proc ahash*(path: string): Hash =
+proc ahash*(path: string): Hash {.contractual.} =
   ## aHash of an image file.
-  let img = loadImage(path)
-  aHash(toGrayscale(img.data, img.width, img.height, img.channels))
+  require:
+    path.len > 0
+  body:
+    let img = loadImage(path)
+    result = aHash(toGrayscale(img.data, img.width, img.height, img.channels))
 
-proc dhash*(path: string): Hash =
+proc dhash*(path: string): Hash {.contractual.} =
   ## dHash of an image file.
-  let img = loadImage(path)
-  dHash(toGrayscale(img.data, img.width, img.height, img.channels))
+  require:
+    path.len > 0
+  body:
+    let img = loadImage(path)
+    result = dHash(toGrayscale(img.data, img.width, img.height, img.channels))
 
-proc toHex*(hash: Hash): string =
+proc toHex*(hash: Hash): string {.contractual.} =
   ## 16-char lowercase hex of a `Hash`.
-  hash.toHex(16).toLowerAscii()
+  ensure:
+    result.len == 16
+  body:
+    result = hash.toHex(16).toLowerAscii()
 
-proc toHex*(hash: seq[byte]): string =
+proc toHex*(hash: seq[byte]): string {.contractual.} =
   ## Lowercase hex of a byte sequence (e.g. a blockhash).
-  hash.mapIt(it.toHex(2).toLowerAscii()).join("")
+  ensure:
+    result.len == hash.len * 2
+  body:
+    result = hash.mapIt(it.toHex(2).toLowerAscii()).join("")
