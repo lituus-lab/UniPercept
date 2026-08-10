@@ -23,15 +23,16 @@ self-contained wheel: the native library travels inside the package, so
 installing it needs neither Nim nor a compiler.
 
 ```
-pip install unipercept
+pip install UniPercept-lituus
 ```
 
 CI executes this notebook against the wheel the release actually publishes, so
 an output below that stops matching fails the build."""),
     ("md", "## The API\n\n"
-           "`decode` returns an `Image`; `ahash`/`dhash`/`phash` return 64-bit "
-           "integers, `blockhash(bits)` returns bytes, and `hamming(a, b)` is "
-           "the popcount-of-XOR distance between two hashes."),
+           "`decode` returns an `Image`; aHash, dHash and pHash return 64-bit "
+           "integers, blockhash returns bytes, and Hamming distance counts "
+           "the differing bits. `BkTree` performs exact radius queries over "
+           "stored hashes."),
     ("code", "import unipercept\n\n"
              "unipercept.version(), unipercept.__version__, unipercept.abi_version()"),
     ("md", "## Decode and hash a small image\n\n"
@@ -44,6 +45,13 @@ an output below that stops matching fails the build."""),
     ("code", "unipercept.hamming(a, a), unipercept.hamming(a, d)"),
     ("code", "bh = img.blockhash(16)\n"
              "len(bh), bh[:8].hex()"),
+    ("md", "## Grayscale kernels and a similarity index"),
+    ("code", "gray = unipercept.to_grayscale(PPM[-12:], 2, 2, 3)\n"
+             "gray.pixels, gray.phash() == p"),
+    ("code", "tree = unipercept.BkTree()\n"
+             "tree.insert(10, p)\n"
+             "tree.insert(11, d)\n"
+             "len(tree), sorted(tree.query(p, radius=64))"),
 ]
 
 
