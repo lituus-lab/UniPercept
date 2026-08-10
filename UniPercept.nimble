@@ -132,20 +132,26 @@ task buildCython, "Cython extension in-place":
   # nimscript `cd` (lib/system/nimscript.nim) changes the VM cwd for the next
   # exec without a shell, so the task works under nimble's no-shell exec on Windows.
   cd "py"
-  exec "python3 setup.py build_ext --inplace"
+  exec pythonExe & " setup.py build_ext --inplace"
   cd ".."
 
 task pyTest, "Cython extension + pytest":
   exec "nimble buildCython"
   cd "py"
-  exec "python3 -m pytest -q"
+  exec pythonExe & " -m pytest -q"
   cd ".."
 
 task pyWheel, "wheel":
   exec "nimble pyLib"
   exec "nimble pyDeps"
   cd "py"
-  exec "python3 setup.py bdist_wheel"
+  exec pythonExe & " setup.py bdist_wheel"
+  cd ".."
+
+task pySdist, "Python source distribution with vendored Nim source":
+  exec "nimble pyDeps"
+  cd "py"
+  exec pythonExe & " setup.py sdist"
   cd ".."
 
 task coverage, "LCOV + HTML coverage report for the Nim sources (needs lcov)":
