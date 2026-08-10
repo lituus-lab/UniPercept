@@ -1,62 +1,115 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 lituus-lab
-"""Build unipercept._core, a Cython extension over the UniPercept C ABI.
-Run `nimble pyLib` first so the library is at the repo root."""
+"""Build unipercept._core over the UniPercept C ABI.
+
+A repository checkout links the library built by ``nimble pyLib``. An
+extracted source distribution builds its vendored Nim project; Nim and Nimble
+must be available on PATH.
+"""
 import os
 import shutil
+import subprocess
 import sys
 
-from setuptools import Extension, setup
-from setuptools.command.build_ext import build_ext as _build_ext
 from Cython.Build import cythonize
+from setuptools import Extension, setup
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-INCLUDE = os.path.join(ROOT, "include")
 PKG_DIR = os.path.join(HERE, "unipercept")
+VENDOR_DIR = os.path.join(HERE, "_nimsrc")
+NIMBLE_FILE = "UniPercept.nimble"
+VENDOR_FILES = [NIMBLE_FILE, "config.nims", "vgraph.cfg"]
+VENDOR_DIRS = ["src", "include"]
 
-# Windows: link a vcc static lib, since MSVC CPython cannot link MinGW output.
-# Elsewhere: bundle the shared lib in the package, found through an rpath
-# relative to the extension. macOS rejects distutils' -R, hence extra_link_args.
 if sys.platform == "win32":
     LIB_NAME, BUNDLED = "UniPercept.lib", False
-    RUNTIME_DIRS, LINK_ARGS, NIMBLE_TASK = [], [], "clibMsvc"
+    LINK_ARGS, NIMBLE_TASK = [], "clibMsvc"
 elif sys.platform == "darwin":
     LIB_NAME, BUNDLED = "libUniPercept.dylib", True
-    RUNTIME_DIRS, LINK_ARGS, NIMBLE_TASK = [], ["-Wl,-rpath,@loader_path"], "clib"
+    LINK_ARGS, NIMBLE_TASK = ["-Wl,-rpath,@loader_path"], "clib"
 else:
     LIB_NAME, BUNDLED = "libUniPercept.so", True
-    RUNTIME_DIRS, LINK_ARGS, NIMBLE_TASK = ["$ORIGIN"], [], "clib"
+    LINK_ARGS, NIMBLE_TASK = ["-Wl,-rpath,$ORIGIN"], "clib"
 
 
-class build_ext_with_lib(_build_ext):
-    """Copy the shared library into the package dir before linking."""
-
-    def run(self):
-        src = os.path.join(ROOT, LIB_NAME)
-        if not os.path.exists(src):
-            raise SystemExit(
-                f"setup.py: {src} not found — run `nimble {NIMBLE_TASK}` first."
-            )
-        if BUNDLED:
-            os.makedirs(PKG_DIR, exist_ok=True)
-            shutil.copy2(src, os.path.join(PKG_DIR, LIB_NAME))
-        super().run()
+def vendor_nim_source():
+    """Copy the files needed for a standalone Nim build into the sdist."""
+    if os.path.exists(VENDOR_DIR):
+        shutil.rmtree(VENDOR_DIR)
+    os.makedirs(VENDOR_DIR)
+    for filename in VENDOR_FILES:
+        shutil.copy2(os.path.join(ROOT, filename), os.path.join(VENDOR_DIR, filename))
+    for dirname in VENDOR_DIRS:
+        shutil.copytree(os.path.join(ROOT, dirname), os.path.join(VENDOR_DIR, dirname))
 
 
-ext = Extension(
+def nim_project_dir():
+    if os.path.exists(os.path.join(ROOT, NIMBLE_FILE)):
+        return ROOT
+    if os.path.exists(os.path.join(VENDOR_DIR, NIMBLE_FILE)):
+        return VENDOR_DIR
+    return None
+
+
+def ensure_lib_built():
+    prebuilt = os.path.join(ROOT, LIB_NAME)
+    if os.path.exists(prebuilt):
+        return prebuilt
+    project = nim_project_dir()
+    if project is None:
+        raise SystemExit(
+            f"setup.py: {prebuilt} not found — run `nimble {NIMBLE_TASK}` first."
+        )
+    built = os.path.join(project, LIB_NAME)
+    if os.path.exists(built):
+        return built
+    try:
+        subprocess.check_call(["nimble", "install", "-y", "-d"], cwd=project)
+        subprocess.check_call(["nimble", NIMBLE_TASK], cwd=project)
+    except FileNotFoundError as error:
+        raise SystemExit(
+            "setup.py: `nimble` not found on PATH. Building UniPercept from "
+            "source needs Nim (https://nim-lang.org/install.html)."
+        ) from error
+    except subprocess.CalledProcessError as error:
+        raise SystemExit(f"setup.py: `nimble {NIMBLE_TASK}` failed: {error}") from error
+    if not os.path.exists(built):
+        raise SystemExit(f"setup.py: `nimble {NIMBLE_TASK}` did not produce {built}")
+    return built
+
+
+if "sdist" in sys.argv:
+    vendor_nim_source()
+    include_dir, library_dir = os.path.join(ROOT, "include"), ROOT
+else:
+    library_path = ensure_lib_built()
+    library_dir = os.path.dirname(library_path)
+    include_dir = os.path.join(ROOT, "include")
+    if not os.path.isdir(include_dir):
+        include_dir = os.path.join(VENDOR_DIR, "include")
+    if BUNDLED:
+        os.makedirs(PKG_DIR, exist_ok=True)
+        shutil.copy2(library_path, os.path.join(PKG_DIR, LIB_NAME))
+
+pyx = os.path.join("unipercept", "_core.pyx")
+source = pyx if os.path.exists(os.path.join(HERE, pyx)) else os.path.join(
+    "unipercept", "_core.c"
+)
+extension = Extension(
     "unipercept._core",
-    sources=[os.path.join("unipercept", "_core.pyx")],
-    include_dirs=[INCLUDE],
-    library_dirs=[ROOT],
-    runtime_library_dirs=RUNTIME_DIRS,
+    sources=[source],
+    include_dirs=[include_dir],
+    library_dirs=[library_dir],
     extra_link_args=LINK_ARGS,
     libraries=["UniPercept"],
 )
+ext_modules = (
+    cythonize([extension], language_level=3) if source.endswith(".pyx") else [extension]
+)
 
 setup(
-    ext_modules=cythonize([ext], language_level=3),
-    cmdclass={"build_ext": build_ext_with_lib},
+    ext_modules=ext_modules,
     include_package_data=True,
     package_data={"unipercept": [LIB_NAME] if BUNDLED else []},
     exclude_package_data={"unipercept": ["_core.c"]},
