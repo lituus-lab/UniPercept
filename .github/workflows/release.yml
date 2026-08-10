@@ -60,13 +60,14 @@ jobs:
           path: '*.tar.gz'
 
   wheels:
-    name: Wheel (${{ matrix.os }})
+    name: Wheel (${{ matrix.os }}, py${{ matrix.python-version }})
     needs: guard
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ['3.9', '3.10', '3.11', '3.12', '3.13', '3.14']
     steps:
       - uses: actions/checkout@v4
         with: { persist-credentials: false }
@@ -76,12 +77,12 @@ jobs:
       - run: nimble install -y
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: ${{ matrix.python-version }}
       - run: pip install -U setuptools wheel Cython
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
       - run: nimble pyLib
-      - run: cd py && python3 setup.py bdist_wheel
+      - run: cd py && python setup.py bdist_wheel
       - name: Repair Wheel
         shell: bash
         run: |
@@ -93,12 +94,29 @@ jobs:
           esac
       - uses: actions/upload-artifact@v4
         with:
-          name: wheel-${{ matrix.os }}
+          name: wheel-${{ matrix.os }}-py${{ matrix.python-version }}
           path: dist/*.whl
 
+  sdist:
+    name: Source distribution
+    needs: guard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -U setuptools wheel Cython
+      - run: cd py && python setup.py sdist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: py/dist/*.tar.gz
+
   publish:
-    name: Publish
-    needs: [cabi, wheels]
+    name: Publish GitHub Release
+    needs: [cabi, wheels, sdist]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -111,3 +129,28 @@ jobs:
         with:
           files: artifacts/**/*
           generate_release_notes: true
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: [wheels, sdist]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/UniPercept-lituus/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheel-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdist
+          path: dist
+      - run: ls dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+          skip-existing: true

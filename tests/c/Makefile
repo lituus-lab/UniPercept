@@ -12,14 +12,8 @@ endif
 ROOT   := $(CURDIR)/../..
 CFLAGS := -I$(ROOT)/include -O2 -Wall -Wextra -std=c11
 LIB    := $(ROOT)/libUniPercept.a
-# libUniPercept.a references uncompress/compress2 (UniImage PNG/DEFLATE codecs
-# via libz FFI); a C consumer must supply libz itself, even when only decoding
-# PPM — the archive pulls in the full UniImage codec set reachable from decode.
-ifeq ($(OS),Windows_NT)
-  LIBS := -lz
-else
-  LIBS := -lz
-endif
+# The archive uses floating-point math; UniImage compression is pure Nim.
+LIBS := -lm
 
 ifeq ($(OS),Windows_NT)
   BIN  := test_unipercept.exe
@@ -32,8 +26,9 @@ else
   LIBS += -pthread
 endif
 
-.PHONY: all run clean
+.PHONY: all test run clean
 all: run
+test: run
 run: $(BIN)
 	$(RUN)
 $(BIN): test_unipercept.c $(ROOT)/include/UniPercept.h $(LIB)

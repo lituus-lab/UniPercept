@@ -40,6 +40,7 @@ py/unipercept/*.so
 py/unipercept/libUniPercept.so
 py/dist/
 py/build/
+py/_nimsrc/
 py/*.egg-info/
 py/**/__pycache__/
 py/.pytest_cache/

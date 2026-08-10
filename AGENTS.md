@@ -41,9 +41,8 @@ CI: 3-OS Nim matrix + C ABI + Python.
 - `book/index.nim` is nimib: its code blocks are compiled and run at docs build,
   so prose that outlives its API breaks the build. `py/notebooks/quickstart.ipynb`
   plays the same role for Python and renders natively on GitHub.
-- End covered sources with a blank line. Nim maps a trailing statement one line
-  past EOF; without that line lcov aborts on `range`/`unmapped`, and `nimble
-  coverage` deliberately suppresses no error so the failure stays visible.
+- Coverage ignores only Nim 2.2's empty imported-module (`gcov`) and synthetic
+  line-after-EOF (`range`) mapping cases. Source and I/O errors remain fatal.
 
 ## Scope
 

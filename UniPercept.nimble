@@ -57,10 +57,10 @@ task testRelease, "Nim tests (release, contracts compiled away)":
   exec "nim c -r -d:release --path:src -o:build/test_vgraph_rel tests/test_vgraph.nim"
 
 task testCi, "Nim tests (CI subset, debug)":
-  exec "nim c -r --path:src -o:build/test_percept tests/test_percept.nim"
+  exec "nimble test"
 
 task testCiRelease, "Nim tests (CI subset, release)":
-  exec "nim c -r -d:release --path:src -o:build/test_percept_rel tests/test_percept.nim"
+  exec "nimble testRelease"
 
 task testAll, "debug + release + C ABI":
   exec "nimble test"
@@ -157,9 +157,8 @@ task pySdist, "Python source distribution with vendored Nim source":
 task coverage, "LCOV + HTML coverage report for the Nim sources (needs lcov)":
   # gcov and lcov driven directly, no coco. Linux and macOS only.
   # --debugger:native attributes lines to the .nim sources, not the generated C.
-  # --include keeps stdlib out of the capture, where lcov 2.x aborts on Nim's
-  # codegen. Together they leave nothing to suppress: no --ignore-errors here,
-  # so a real problem still fails the build.
+  # --include keeps stdlib out. Nim 2.2 can still emit empty imported modules
+  # and a synthetic counter one line past EOF; ignore only those mapping cases.
   let cache = "build/covcache"
   rmDir cache
   rmDir "coverage"
@@ -172,6 +171,8 @@ task coverage, "LCOV + HTML coverage report for the Nim sources (needs lcov)":
        " -o:build/test_coverage tests/test_coverage.nim"
   exec "./build/test_coverage"
   exec "lcov --capture --directory " & cache & " --base-directory ." &
-       " --include \"*/src/UniPercept/*\" --output-file lcov.info --quiet"
-  exec "genhtml lcov.info --output-directory coverage --legend --quiet"
+       " --include \"*/src/UniPercept/*\" --output-file lcov.info --quiet" &
+       " --ignore-errors gcov,gcov"
+  exec "genhtml lcov.info --output-directory coverage --legend --quiet" &
+       " --ignore-errors range,range"
   exec "lcov --summary lcov.info"

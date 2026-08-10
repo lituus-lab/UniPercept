@@ -19,6 +19,10 @@ without a compatible license/attribution, and can stand behind it.
 - [ ] Commits and this PR title follow Conventional Commits — the `commitizen` job blocks otherwise
 - [ ] Commits are atomic (one logical change each; several per PR is fine, but not one monolithic commit)
 - [ ] `nimble testAll` passes
+- [ ] `nimble example` and `nimble cexample` pass
+- [ ] `nimble pyTest`, `nimble pyWheel`, and `nimble pySdist` pass
 - [ ] `nimble lint` and `nimble checkVGraph` pass
+- [ ] `nimble docs` passes
+- [ ] `nimble coverage` passes when `lcov` is available
 - [ ] C ABI touched → `include/UniPercept.h` updated in the same commit
 - [ ] Public API touched → `book/index.nim` still builds and describes it
