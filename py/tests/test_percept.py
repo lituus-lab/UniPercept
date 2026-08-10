@@ -16,12 +16,12 @@ BLUE = b"P6\n2 2\n255\n" + bytes(
 
 
 def test_abi_version():
-    assert unipercept.abi_version() == 1
+    assert unipercept.abi_version() == 2
 
 
 def test_version():
-    assert unipercept.version() == "0.1.0"
-    assert unipercept.__version__ == "0.1.0"
+    assert unipercept.version() == "1.0.0"
+    assert unipercept.__version__ == "1.0.0"
 
 
 def test_decode_and_props():
@@ -81,3 +81,40 @@ def test_blockhash_out_of_range_raises():
 def test_bad_input_raises():
     with pytest.raises(ValueError):
         unipercept.decode(b"\x00\x01\x02\x03")
+
+
+def test_grayscale_resize_and_top_level_hashes():
+    gray = unipercept.to_grayscale(PPM[-12:], 2, 2, 3)
+    assert (gray.width, gray.height) == (2, 2)
+    assert gray.pixels == bytes([76, 149, 29, 255])
+    resized = unipercept.resize(gray, 8, 8)
+    assert (resized.width, resized.height, len(resized.pixels)) == (8, 8, 64)
+    assert unipercept.ahash(gray) == gray.ahash()
+    assert unipercept.dhash(gray) == gray.dhash()
+    assert unipercept.phash(gray) == gray.phash()
+    assert gray.phash() == unipercept.decode(PPM).phash()
+    assert len(unipercept.blockhash(gray)) == 32
+
+
+def test_file_helpers_and_hex(tmp_path):
+    path = tmp_path / "sample.ppm"
+    path.write_bytes(PPM)
+    hashes = unipercept.compute_hashes(path)
+    assert hashes["phash"] == unipercept.phash(path)
+    assert hashes["ahash"] == unipercept.ahash(path)
+    assert hashes["dhash"] == unipercept.dhash(path)
+    assert unipercept.phash_info(path) == (hashes["phash"], 2, 2)
+    assert unipercept.load_image(path).phash() == hashes["phash"]
+    assert len(unipercept.to_hex(hashes["phash"])) == 16
+    assert unipercept.to_hex(b"\x00\xff") == "00ff"
+    assert unipercept.similarity(hashes["phash"], hashes["phash"]) == 1.0
+
+
+def test_bk_tree():
+    tree = unipercept.BkTree()
+    tree.insert(10, 0)
+    tree.insert(11, 1)
+    assert len(tree) == 2
+    assert sorted(tree.query(0, 1)) == [(10, 0), (11, 1)]
+    with pytest.raises(ValueError):
+        tree.query(0, -1)
