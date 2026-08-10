@@ -49,6 +49,7 @@ repos:
         language: system
         pass_filenames: false
         always_run: true
+        stages: [pre-commit]
       - id: dco
         name: DCO sign-off
         entry: tools/hooks/dco_check.sh

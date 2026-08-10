@@ -12,13 +12,8 @@ endif
 ROOT   := $(CURDIR)/../..
 CFLAGS := -I$(ROOT)/include -O2 -Wall -Wextra -std=c11
 LIB    := $(ROOT)/libUniPercept.a
-# The demo now decodes via up_decode, so the static archive pulls in UniImage's
-# PNG/DEFLATE codecs (libz FFI); supply libz like tests/c/Makefile does.
-ifeq ($(OS),Windows_NT)
-  LIBS := -lz
-else
-  LIBS := -lz
-endif
+# The archive uses floating-point math; UniImage compression is pure Nim.
+LIBS := -lm
 
 ifeq ($(OS),Windows_NT)
   BIN  := demo.exe
