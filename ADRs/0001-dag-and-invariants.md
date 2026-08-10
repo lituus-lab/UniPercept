@@ -1,26 +1,27 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 <!-- Copyright 2026 lituus-lab -->
-# ADR-0001: Acyclic DAG + anti-cycle invariants
+# ADR-0001: UniPercept dependency direction
 
 - Status: Accepted
 - Date: 2026-07-15
-- Scope: every `Uni*` repo
+- Scope: UniPercept
 
 ## Decision
 
-Family dependencies form a strictly acyclic DAG (layers 0–7); a library
-depends only on lower layers. Topological order = build order. A back-edge is
-rejected in review and fails CI.
+UniPercept depends on UniImage for decoding. UniImage never imports
+UniPercept. The internal kernels remain independent of decoding:
+
+```text
+gray -> resize -> hashes -> bktree
+                         \
+UniImage -> decode ------> facade -> c_api
+```
 
 ## Invariants
 
-1. Layer-0 primitives have no domain dependency (`UniColor`, `UniMIDI` → none).
-2. Type modules never import algorithm modules within a library
-   (`types/` ↛ `algorithms/`; `io/` → `types/` only).
-3. `UniLinalg` is a repo above `UniMath`; `UniGeom` consumes it, no redefined Vec.
-4. No library depends on an app. Apps may depend on anything below.
-5. Infrastructure dependencies such as `nimsimd` and `NimContracts` stay
-   external and pinned. They do not create a `Uni*` family back-edge.
-
-Extraction into its own repo requires a consumer wanting the piece *without*
-the parent's main subject; else one repo with a documented internal DAG.
+1. Only `decode.nim` and the foreign boundary import UniImage.
+2. Grayscale, resize, hashes, and BK-tree remain usable without a codec.
+3. UniPercept does not duplicate UniImage image types or decoders.
+4. UniPercept never imports an application.
+5. NimContracts and UniImage track their maintained `main` branches, matching
+   the family development contract used by the package manifest.
