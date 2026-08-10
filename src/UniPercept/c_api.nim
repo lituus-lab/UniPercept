@@ -5,8 +5,8 @@
 ## against this lib.
 ##
 ## Conventions (see the header for the authoritative contract):
-##   * Call `up_init()` exactly once per process before anything else (it runs
-##     the Nim runtime initialiser).
+##   * Call `up_init()` before anything else. Repeated calls are no-ops; the
+##     first call must be externally synchronized.
 ##   * Handles are opaque `void*`. The library owns them; free with `up_free`.
 ##     `up_blockhash` allocates a C-owned buffer; free it with `up_buffer_free`.
 ##   * No Nim exception or Defect crosses the ABI: every entry point traps both
@@ -15,21 +15,15 @@
 ##     encode-side UNSUP case to distinguish, unlike UniImage's `ui_image_*`).
 import UniPercept
 import std/[sets, locks]
-import UniImage ## for the `Image[uint8]` type held in the handle; Nim does not
-              ## re-export a foreign generic type through the facade's `export`
-              ## chain, so the engine facade is imported directly (vgraph-clean:
-              ## UniImage is an engine, not a layer).
 
 when defined(danger):
-  {.warning: "libUniPercept built with -d:danger: bounds checks are off and the " &
-    "Defect backstops at the ABI boundary cannot fire. Prefer -d:release for a " &
-    "hardened parser facing untrusted input.".}
+  {.error: "libUniPercept must not be built with -d:danger; use -d:release".}
 
-const UniPerceptAbiVersion = 1
+const UniPerceptAbiVersion = 2
 
 type
   ImgHandle = ref object
-    img: Image[uint8]
+    img: DecodedImage
   IndexHandle = ref object
     tree: BkTree
 
@@ -39,6 +33,7 @@ proc imgOf(p: pointer): ImgHandle {.inline.} = cast[ImgHandle](p)
 proc indexOf(p: pointer): IndexHandle {.inline.} = cast[IndexHandle](p)
 
 var
+  initialized: bool
   handleLock: Lock
   imageHandles, indexHandles: HashSet[pointer]
 
@@ -59,6 +54,27 @@ proc unregisterHandle(handles: var HashSet[pointer]; h: pointer): bool =
     result = h in handles
     if result: handles.excl h
 
+proc grayFromC(data: ptr uint8; length: csize_t; width,
+    height: cint): GrayscaleImage =
+  if width < 0 or height < 0:
+    raise newException(ValueError, "negative grayscale dimensions")
+  let count = int64(width) * int64(height)
+  if count > int64(high(int)) or csize_t(count) != length:
+    raise newException(ValueError, "inconsistent grayscale buffer")
+  if count > 0 and data == nil:
+    raise newException(ValueError, "nil grayscale buffer")
+  result = GrayscaleImage(width: int(width), height: int(height),
+      pixels: newSeq[byte](int(count)))
+  if count > 0:
+    copyMem(addr result.pixels[0], data, int(count))
+
+proc copyToShared(data: openArray[byte]): ptr uint8 =
+  if data.len == 0: return nil
+  let p = allocShared(data.len)
+  if p == nil: raise newException(OutOfMemDefect, "allocation failed")
+  copyMem(p, unsafeAddr data[0], data.len)
+  cast[ptr uint8](p)
+
 # Status codes — keep in sync with `up_percept_status` in UniPercept.h.
 const
   UP_PERCEPT_OK = cint(0)
@@ -74,9 +90,11 @@ const
 {.push exportc, cdecl, dynlib.}
 
 proc up_init() =
-  ## Initialise the Nim runtime. Must be called once before any other function.
+  ## Initialise the Nim runtime. The first call must be externally synchronized.
+  if initialized: return
   try:
     NimMain()
+    initialized = true
   except CatchableError, Defect:
     discard
 
@@ -84,15 +102,132 @@ proc up_abi_version(): cint = cint(UniPerceptAbiVersion)
 
 proc up_strerror(code: cint): cstring =
   case code
-  of 0: cstring"ok"
-  of 2: cstring"bad argument / unrecognized / truncated"
-  of 4: cstring"unsupported operation"
-  of 8: cstring"out of memory"
+  of UP_PERCEPT_OK: cstring"ok"
+  of UP_PERCEPT_ERR_FORMAT: cstring"bad argument / unrecognized / truncated"
+  of UP_PERCEPT_ERR_UNSUP: cstring"unsupported operation"
+  of UP_PERCEPT_ERR_MEM: cstring"out of memory"
   else: cstring"unknown error"
 
 proc up_version(): cstring =
   ## Static engine version string; do not free. Never raises.
   cstring(UniPerceptVersion)
+
+proc up_grayscale(data: ptr uint8; length: csize_t; width, height,
+    channels: cint; outData: ptr ptr uint8; outLen: ptr csize_t): cint =
+  if outData == nil or outLen == nil: return UP_PERCEPT_ERR_FORMAT
+  outData[] = nil
+  outLen[] = 0
+  if width < 0 or height < 0 or channels <= 0: return UP_PERCEPT_ERR_FORMAT
+  let count = int64(width) * int64(height)
+  if count > int64(high(int)) or
+      (channels > 0 and count > int64(high(int)) div int64(channels)):
+    return UP_PERCEPT_ERR_FORMAT
+  let needed = count * int64(channels)
+  if needed > int64(length) or (needed > 0 and data == nil):
+    return UP_PERCEPT_ERR_FORMAT
+  try:
+    var input = newSeq[byte](int(needed))
+    if needed > 0: copyMem(addr input[0], data, int(needed))
+    let gray = toGrayscale(input, int(width), int(height), int(channels))
+    outData[] = copyToShared(gray.pixels)
+    outLen[] = csize_t(gray.pixels.len)
+    UP_PERCEPT_OK
+  except OutOfMemDefect:
+    UP_PERCEPT_ERR_MEM
+  except CatchableError, Defect:
+    UP_PERCEPT_ERR_FORMAT
+
+proc up_resize_gray(data: ptr uint8; length: csize_t; width, height,
+    newWidth, newHeight: cint; outData: ptr ptr uint8;
+    outLen: ptr csize_t): cint =
+  if outData == nil or outLen == nil: return UP_PERCEPT_ERR_FORMAT
+  outData[] = nil
+  outLen[] = 0
+  if newWidth < 0 or newHeight < 0: return UP_PERCEPT_ERR_FORMAT
+  let outputCount = int64(newWidth) * int64(newHeight)
+  if outputCount > int64(high(cint)): return UP_PERCEPT_ERR_MEM
+  try:
+    let resized = resize(grayFromC(data, length, width, height),
+        int(newWidth), int(newHeight))
+    outData[] = copyToShared(resized.pixels)
+    outLen[] = csize_t(resized.pixels.len)
+    UP_PERCEPT_OK
+  except OutOfMemDefect:
+    UP_PERCEPT_ERR_MEM
+  except CatchableError, Defect:
+    UP_PERCEPT_ERR_FORMAT
+
+proc up_ahash_gray(data: ptr uint8; length: csize_t; width, height: cint;
+    outHash: ptr uint64): cint =
+  if outHash == nil: return UP_PERCEPT_ERR_FORMAT
+  try:
+    outHash[] = uint64(aHash(grayFromC(data, length, width, height)))
+    UP_PERCEPT_OK
+  except CatchableError, Defect:
+    UP_PERCEPT_ERR_FORMAT
+
+proc up_dhash_gray(data: ptr uint8; length: csize_t; width, height: cint;
+    outHash: ptr uint64): cint =
+  if outHash == nil: return UP_PERCEPT_ERR_FORMAT
+  try:
+    outHash[] = uint64(dHash(grayFromC(data, length, width, height)))
+    UP_PERCEPT_OK
+  except CatchableError, Defect:
+    UP_PERCEPT_ERR_FORMAT
+
+proc up_phash_gray(data: ptr uint8; length: csize_t; width, height: cint;
+    outHash: ptr uint64): cint =
+  if outHash == nil: return UP_PERCEPT_ERR_FORMAT
+  try:
+    outHash[] = uint64(pHash(grayFromC(data, length, width, height)))
+    UP_PERCEPT_OK
+  except CatchableError, Defect:
+    UP_PERCEPT_ERR_FORMAT
+
+proc up_blockhash_gray(data: ptr uint8; length: csize_t; width, height,
+    bits: cint; outData: ptr ptr uint8; outLen: ptr csize_t): cint =
+  if outData == nil or outLen == nil: return UP_PERCEPT_ERR_FORMAT
+  outData[] = nil
+  outLen[] = 0
+  if bits <= 0 or bits > cint(MaxBlockBits): return UP_PERCEPT_ERR_FORMAT
+  try:
+    let value = blockhash(grayFromC(data, length, width, height), int(bits))
+    outData[] = copyToShared(value)
+    outLen[] = csize_t(value.len)
+    UP_PERCEPT_OK
+  except OutOfMemDefect:
+    UP_PERCEPT_ERR_MEM
+  except CatchableError, Defect:
+    UP_PERCEPT_ERR_FORMAT
+
+proc up_similarity(a, b: uint64): cdouble = cdouble(similarity(Hash(a), Hash(b)))
+
+proc up_hash_hex(hash: uint64; outText: ptr char; capacity: csize_t): csize_t =
+  const Required = 17
+  try:
+    if outText != nil and capacity >= Required:
+      let value = toHex(Hash(hash))
+      copyMem(outText, unsafeAddr value[0], value.len)
+      cast[ptr UncheckedArray[char]](outText)[value.len] = '\0'
+    csize_t(Required)
+  except CatchableError, Defect:
+    0
+
+proc up_bytes_hex(data: ptr uint8; length: csize_t; outText: ptr char;
+    capacity: csize_t): csize_t =
+  if length > csize_t((high(int) - 1) div 2): return 0
+  let required = int(length) * 2 + 1
+  if length > 0 and data == nil: return 0
+  try:
+    if outText != nil and capacity >= csize_t(required):
+      var bytes = newSeq[byte](int(length))
+      if length > 0: copyMem(addr bytes[0], data, int(length))
+      let value = toHex(bytes)
+      if value.len > 0: copyMem(outText, unsafeAddr value[0], value.len)
+      cast[ptr UncheckedArray[char]](outText)[value.len] = '\0'
+    csize_t(required)
+  except CatchableError, Defect:
+    0
 
 proc up_decode(data: ptr uint8; length: csize_t; fmt: cint;
     outHandle: ptr pointer): cint =
@@ -121,17 +256,36 @@ proc up_decode(data: ptr uint8; length: csize_t; fmt: cint;
   except CatchableError, Defect:
     UP_PERCEPT_ERR_FORMAT
 
+proc up_decode_file(path: cstring; outHandle: ptr pointer): cint =
+  if outHandle == nil: return UP_PERCEPT_ERR_FORMAT
+  outHandle[] = nil
+  if path == nil or path[0] == '\0': return UP_PERCEPT_ERR_FORMAT
+  try:
+    let h = ImgHandle(img: loadImage($path))
+    let p = cast[pointer](h)
+    registerHandle(imageHandles, p)
+    GC_ref(h)
+    outHandle[] = p
+    UP_PERCEPT_OK
+  except UniImageException, IOError, OSError:
+    UP_PERCEPT_ERR_FORMAT
+  except CatchableError, Defect:
+    UP_PERCEPT_ERR_FORMAT
+
 proc up_image_width(h: pointer): cint =
   if not containsHandle(imageHandles, h): return 0
-  cint(imgOf(h).img.width)
+  try: cint(imgOf(h).img.width)
+  except CatchableError, Defect: 0
 
 proc up_image_height(h: pointer): cint =
   if not containsHandle(imageHandles, h): return 0
-  cint(imgOf(h).img.height)
+  try: cint(imgOf(h).img.height)
+  except CatchableError, Defect: 0
 
 proc up_image_channels(h: pointer): cint =
   if not containsHandle(imageHandles, h): return 0
-  cint(imgOf(h).img.channels)
+  try: cint(imgOf(h).img.channels)
+  except CatchableError, Defect: 0
 
 proc up_ahash(h: pointer): uint64 =
   ## Average hash, or 0 on a nil handle / failure. Never raises.
@@ -199,6 +353,62 @@ proc up_hamming(a, b: uint64): cint =
   ## Hamming distance (popcount of XOR). Never raises.
   cint(hammingDistance(a, b))
 
+proc up_compute_file(path: cstring; outAHash, outDHash,
+    outPHash: ptr uint64; outBlockhash: ptr ptr uint8;
+    outBlockhashLen: ptr csize_t): cint =
+  if path == nil or path[0] == '\0' or outAHash == nil or outDHash == nil or
+      outPHash == nil or outBlockhash == nil or outBlockhashLen == nil:
+    return UP_PERCEPT_ERR_FORMAT
+  outBlockhash[] = nil
+  outBlockhashLen[] = 0
+  try:
+    let hashes = computeHashes($path)
+    let blockData = copyToShared(hashes.blockhash)
+    outAHash[] = uint64(hashes.aHash)
+    outDHash[] = uint64(hashes.dHash)
+    outPHash[] = uint64(hashes.pHash)
+    outBlockhash[] = blockData
+    outBlockhashLen[] = csize_t(hashes.blockhash.len)
+    UP_PERCEPT_OK
+  except OutOfMemDefect:
+    UP_PERCEPT_ERR_MEM
+  except CatchableError, Defect:
+    UP_PERCEPT_ERR_FORMAT
+
+proc up_phash_file(path: cstring; outHash: ptr uint64; outWidth,
+    outHeight: ptr cint): cint =
+  if path == nil or path[0] == '\0' or outHash == nil or outWidth == nil or
+      outHeight == nil:
+    return UP_PERCEPT_ERR_FORMAT
+  try:
+    let value = phashInfo($path)
+    if value.width > high(cint) or value.height > high(cint):
+      return UP_PERCEPT_ERR_FORMAT
+    outHash[] = uint64(value.hash)
+    outWidth[] = cint(value.width)
+    outHeight[] = cint(value.height)
+    UP_PERCEPT_OK
+  except CatchableError, Defect:
+    UP_PERCEPT_ERR_FORMAT
+
+proc up_ahash_file(path: cstring; outHash: ptr uint64): cint =
+  if path == nil or path[0] == '\0' or outHash == nil:
+    return UP_PERCEPT_ERR_FORMAT
+  try:
+    outHash[] = uint64(ahash($path))
+    UP_PERCEPT_OK
+  except CatchableError, Defect:
+    UP_PERCEPT_ERR_FORMAT
+
+proc up_dhash_file(path: cstring; outHash: ptr uint64): cint =
+  if path == nil or path[0] == '\0' or outHash == nil:
+    return UP_PERCEPT_ERR_FORMAT
+  try:
+    outHash[] = uint64(dhash($path))
+    UP_PERCEPT_OK
+  except CatchableError, Defect:
+    UP_PERCEPT_ERR_FORMAT
+
 proc up_index_new(outHandle: ptr pointer): cint =
   ## Create an empty bk-tree index. On success stores an opaque handle (free
   ## with up_index_free).
@@ -223,6 +433,11 @@ proc up_index_insert(idx: pointer; id: int32; h: uint64): cint =
   except CatchableError, Defect:
     UP_PERCEPT_ERR_FORMAT
 
+proc up_index_len(idx: pointer): csize_t =
+  if not containsHandle(indexHandles, idx): return 0
+  try: csize_t(indexOf(idx).tree.len)
+  except CatchableError, Defect: 0
+
 proc up_index_query(idx: pointer; h: uint64; radius: cint;
     outIds: ptr ptr int32; outCount: ptr csize_t): cint =
   ## Query the index for hashes within Hamming `radius` of `h`. On success
@@ -233,10 +448,12 @@ proc up_index_query(idx: pointer; h: uint64; radius: cint;
   outIds[] = nil
   outCount[] = 0
   if not containsHandle(indexHandles, idx): return UP_PERCEPT_ERR_FORMAT
+  if radius < 0 or radius > 64: return UP_PERCEPT_ERR_FORMAT
   try:
     let res = indexOf(idx).tree.query(Hash(h), int(radius))
-    outCount[] = csize_t(res.len)
     if res.len == 0: return UP_PERCEPT_OK
+    if res.len > high(int) div (2 * sizeof(int32)):
+      return UP_PERCEPT_ERR_MEM
     let buf = allocShared(res.len * 2 * sizeof(int32))
     if buf == nil: return UP_PERCEPT_ERR_MEM
     let dst = cast[ptr UncheckedArray[int32]](buf)
@@ -244,6 +461,7 @@ proc up_index_query(idx: pointer; h: uint64; radius: cint;
       dst[i * 2] = res[i][0]
       dst[i * 2 + 1] = int32(res[i][1])
     outIds[] = cast[ptr int32](buf)
+    outCount[] = csize_t(res.len)
     UP_PERCEPT_OK
   except CatchableError, Defect:
     UP_PERCEPT_ERR_FORMAT
@@ -256,10 +474,8 @@ proc up_free(h: pointer) =
   ## Free a handle. NULL is a no-op.
   if unregisterHandle(imageHandles, h): GC_unref(imgOf(h))
 
-proc up_buffer_free(p: ptr uint8; len: csize_t) =
-  ## Free a buffer returned by up_blockhash. NULL is a no-op. `len` is ignored
-  ## (kept for symmetry with the allocator).
+proc up_buffer_free(p: pointer; len: csize_t) =
+  ## Free a buffer returned by UniPercept. NULL is a no-op. `len` is ignored.
   if p != nil: deallocShared(p)
 
 {.pop.}
-

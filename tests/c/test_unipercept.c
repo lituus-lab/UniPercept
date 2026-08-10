@@ -10,6 +10,7 @@
  * "OK" without exercising the ABI is worse than no test. */
 #undef NDEBUG
 #include <assert.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include "UniPercept.h"
@@ -30,6 +31,7 @@ int main(void) {
   assert(up_ahash((up_percept)1) == 0);
   up_free((up_percept)1);
   assert(up_hamming(0, 0) == 0);
+  assert(up_similarity(0, 0) == 1.0);
 
   /* Bad arguments: rejected, out-handle cleared. */
   up_percept bad = (up_percept)1;
@@ -52,6 +54,28 @@ int main(void) {
   assert(up_image_height(img) == 2);
   assert(up_image_channels(img) == 3);
 
+  /* Pure grayscale and resize kernels expose the same bytes as Nim. */
+  unsigned char* gray = NULL;
+  size_t graylen = 0;
+  assert(up_grayscale(ppm + 11, 12, 2, 2, 3, &gray, &graylen) ==
+         UP_PERCEPT_OK);
+  assert(graylen == 4 && gray[0] == 76 && gray[1] == 149 &&
+         gray[2] == 29 && gray[3] == 255);
+  unsigned char* resized = NULL;
+  size_t resizedlen = 0;
+  assert(up_resize_gray(gray, graylen, 2, 2, 8, 8, &resized, &resizedlen) ==
+         UP_PERCEPT_OK);
+  assert(resizedlen == 64);
+  up_buffer_free(resized, resizedlen);
+  resized = (unsigned char*)1;
+  resizedlen = 1;
+  assert(up_resize_gray(ppm, sizeof ppm, 1, 1, INT_MAX, INT_MAX,
+                        &resized, &resizedlen) == UP_PERCEPT_ERR_MEM);
+  assert(resized == NULL && resizedlen == 0);
+  uint64_t gray_hash = 0;
+  assert(up_phash_gray(gray, graylen, 2, 2, &gray_hash) == UP_PERCEPT_OK);
+  up_buffer_free(gray, graylen);
+
   /* Hashes are non-zero (12 distinct pixels) and self-equal under Hamming. */
   uint64_t a = up_ahash(img);
   uint64_t d = up_dhash(img);
@@ -60,6 +84,27 @@ int main(void) {
   assert(up_hamming(a, a) == 0);
   assert(up_hamming(d, d) == 0);
   assert(up_hamming(p, p) == 0);
+  assert(gray_hash == p);
+
+  /* Dimension products that cannot fit a Nim sequence are rejected. */
+  gray = (unsigned char*)1;
+  graylen = 1;
+  assert(up_grayscale(ppm, sizeof ppm, INT_MAX, INT_MAX, INT_MAX,
+                      &gray, &graylen) == UP_PERCEPT_ERR_FORMAT);
+  assert(gray == NULL && graylen == 0);
+
+  char hex[17];
+  assert(up_hash_hex(p, NULL, 0) == sizeof hex);
+  assert(up_hash_hex(p, hex, sizeof hex) == sizeof hex);
+  assert(strlen(hex) == 16);
+  char short_hex[2] = {'x', 'y'};
+  assert(up_hash_hex(p, short_hex, sizeof short_hex) == sizeof hex);
+  assert(short_hex[0] == 'x' && short_hex[1] == 'y');
+  static const unsigned char known_bytes[] = {0x00, 0xAB, 0xFF};
+  char bytes_hex[7];
+  assert(up_bytes_hex(known_bytes, sizeof known_bytes, bytes_hex,
+                      sizeof bytes_hex) == sizeof bytes_hex);
+  assert(strcmp(bytes_hex, "00abff") == 0);
 
   /* A distinct image (all-blue) differs from the mixed PPM. */
   static const unsigned char blue[] = {
@@ -120,6 +165,7 @@ int main(void) {
   assert(up_index_insert(idx, 101, 1ULL) == UP_PERCEPT_OK);
   assert(up_index_insert(idx, 102, 3ULL) == UP_PERCEPT_OK);
   assert(up_index_insert(idx, 103, 0xFFFFFFFFFFFFFFFFULL) == UP_PERCEPT_OK);
+  assert(up_index_len(idx) == 4);
 
   /* radius 0 -> exact match only (id 100, dist 0). */
   qids = NULL; qn = 0;
@@ -144,6 +190,9 @@ int main(void) {
   assert(up_index_query(idx, 0ULL, 64, &qids, &qn) == UP_PERCEPT_OK);
   assert(qn == 4);
   up_buffer_free((unsigned char*)qids, qn * 2 * sizeof(int32_t));
+  qids = (int32_t*)1; qn = 1;
+  assert(up_index_query(idx, 0ULL, -1, &qids, &qn) == UP_PERCEPT_ERR_FORMAT);
+  assert(qids == NULL && qn == 0);
 
   up_index_free(idx);
   up_index_free(idx);  /* stale handles and double-free are benign */

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 lituus-lab
-# Shell-free: `pwd` and `rm` are unavailable under mingw32-make on Windows.
+# Avoids $(shell pwd) and selects the delete command per platform.
 ifeq ($(origin CC),default)
   ifeq ($(OS),Windows_NT)
     CC := gcc
@@ -29,6 +29,7 @@ else
   BIN  := test_unipercept
   RUN  := ./$(BIN)
   RM_F := rm -f
+  LIBS += -pthread
 endif
 
 .PHONY: all run clean
