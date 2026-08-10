@@ -38,3 +38,21 @@ suite "resize":
     check r.height == 8
     check r.pixels.len == 64
     for v in r.pixels: check v == 0
+
+  test "non-integral downscales cover the final source row and column":
+    for sourceSize in [4, 7]:
+      var pixels = newSeq[byte](sourceSize * sourceSize)
+      let finalStart = (2 * sourceSize) div 3
+      for y in finalStart ..< sourceSize:
+        for x in finalStart ..< sourceSize:
+          pixels[y * sourceSize + x] = 255
+      let r = GrayscaleImage(width: sourceSize, height: sourceSize,
+          pixels: pixels).resize(3, 3)
+      check r.pixels[^1] == 255
+
+  test "large flat downscale does not overflow its accumulator":
+    let side = 5000
+    var pixels = newSeq[byte](side * side)
+    for i in 0 ..< pixels.len: pixels[i] = 255
+    let g = GrayscaleImage(width: side, height: side, pixels: pixels)
+    check g.resize(1, 1).pixels == @[255'u8]
