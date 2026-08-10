@@ -89,7 +89,7 @@ jobs:
       - name: Build shared library
         run: nimble clib
       - name: Upload Library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: libUniPercept-${{ matrix.os }}
           # The header ships with the lib: a C ABI artifact without it is not
@@ -143,7 +143,7 @@ jobs:
           pip install delvewheel
           delvewheel repair py/dist/*.whl -w py/dist/repaired/
       - name: Upload Python Wheel
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unipercept-wheel-${{ matrix.os }}
           path: py/dist/repaired/*.whl
@@ -252,7 +252,7 @@ jobs:
       # nimib runs the book's code against this build: a stale book fails here.
       - run: nimble docs
       - name: Upload Docs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: docs
           path: pages/
@@ -298,7 +298,7 @@ jobs:
       - run: nimble install -y
       - run: nimble coverage
       - name: Upload Coverage Report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-html
           path: |
