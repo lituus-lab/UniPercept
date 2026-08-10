@@ -7,7 +7,7 @@
 ## helpers wire decode -> gray -> hashes. The `up_*` C ABI (`src/UniPercept/c_api.nim`,
 ## header `include/UniPercept.h`) and the Cython binding (`py/unipercept/`)
 ## expose the same surface to C and Python.
-import std/[strutils, sequtils]
+import std/[os, strutils, sequtils]
 import UniPercept/gray
 export gray
 import UniPercept/resize

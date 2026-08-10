@@ -6,6 +6,11 @@ import std/[unittest, os, strutils]
 import UniImage
 import UniPercept
 
+const
+  RepoRoot = currentSourcePath.parentDir.parentDir
+  HeaderText = staticRead(RepoRoot / "include" / "UniPercept.h")
+  PyProjectText = staticRead(RepoRoot / "py" / "pyproject.toml")
+
 # 16x16 RGB gradient: R rises with x, G with y, B with x+y.
 proc gradientRgb(invert = false): Image[uint8] =
   result = newImage[uint8](16, 16, csRgb)

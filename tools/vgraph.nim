@@ -81,7 +81,12 @@ iterator requiredPackages(path: string): string =
         yield name
       pos = b + 1
 
-proc main() =
+proc mayImportUniImage*(path, module: string): bool =
+  ## UniImage is confined to the decode adapter.
+  not (module == "UniImage" or module.startsWith("UniImage/")) or
+    path == "src/UniPercept/decode.nim"
+
+proc main() {.used.} =
   if not fileExists(Cfg):
     quit(&"vgraph: {Cfg} not found", 1)
   let order = section("layers")
@@ -95,6 +100,8 @@ proc main() =
     if own < 0: continue
     inc checked
     for module in importedModules(path):
+      if not mayImportUniImage(path, module):
+        violations.add &"{path}: imports UniImage; only src/UniPercept/decode.nim may"
       let other = layerOfModule(module, order)
       if other > own:
         violations.add &"{path}: imports {module} ({order[other]}) from {order[own]}"
@@ -117,4 +124,5 @@ proc main() =
   echo &"vgraph: {checked} modules respect {order.join(\" < \")}; " &
        &"{engines} engine deps declared"
 
-main()
+when isMainModule:
+  main()
