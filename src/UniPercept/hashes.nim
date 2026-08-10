@@ -11,6 +11,11 @@ import std/[bitops, math]
 
 type Hash* = uint64
 
+func validGray(img: GrayscaleImage): bool =
+  img.width >= 0 and img.height >= 0 and
+    (img.width == 0 or img.height <= high(int) div img.width) and
+    img.width * img.height == img.pixels.len
+
 proc aHash*(img: GrayscaleImage): Hash =
   ## Average hash: 8x8 mean threshold.
   let small = img.resize(8, 8)
@@ -101,4 +106,3 @@ proc blockhash*(img: GrayscaleImage; bits: int = 16): seq[
 
 proc hammingDistance*(a, b: Hash): int = bitops.popcount(a xor b)
 proc similarity*(a, b: Hash): float = 1.0 - (float(hammingDistance(a, b)) / 64.0)
-
