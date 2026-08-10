@@ -2,15 +2,24 @@
 # Copyright 2026 lituus-lab
 # UniPercept — perceptual image hashing for the lituus-lab Uni* family.
 
-version       = "0.1.0"
+version       = "1.0.0"
 author        = "lituus-lab"
 description   = "Perceptual image hashing for the lituus-lab Uni* family (Nim + C-ABI + Python)"
 license       = "Apache-2.0"
 srcDir        = "src"
 
 requires "nim >= 2.0.0"
-requires "https://github.com/lbartoletti/NimContracts#881d6d1ac762b8179fa46da567e8fd41ff747d06"
+requires "https://github.com/lbartoletti/NimContracts#main"
+requires "https://github.com/lituus-lab/UniImage#main"
 
+let pythonExe = when defined(windows): "python" else: "python3"
+
+proc pipSystemFlag(): string =
+  if gorgeEx(pythonExe & " -m pip install --help").output.contains(
+      "--break-system-packages"):
+    " --break-system-packages"
+  else:
+    ""
 task lint, "Fail if nimpretty would reformat a source":
   exec "nim c -r --hints:off -o:build/lint_tool tools/lint.nim"
 
@@ -37,6 +46,7 @@ task test, "Nim tests (debug, contracts active)":
   exec "nim c -r --path:src -o:build/test_resize tests/test_resize.nim"
   exec "nim c -r --path:src -o:build/test_hashes tests/test_hashes.nim"
   exec "nim c -r --path:src -o:build/test_bktree tests/test_bktree.nim"
+  exec "nim c -r --path:src -o:build/test_vgraph tests/test_vgraph.nim"
 
 task testRelease, "Nim tests (release, contracts compiled away)":
   exec "nim c -r -d:release --path:src -o:build/test_percept_rel tests/test_percept.nim"
@@ -44,6 +54,7 @@ task testRelease, "Nim tests (release, contracts compiled away)":
   exec "nim c -r -d:release --path:src -o:build/test_resize_rel tests/test_resize.nim"
   exec "nim c -r -d:release --path:src -o:build/test_hashes_rel tests/test_hashes.nim"
   exec "nim c -r -d:release --path:src -o:build/test_bktree_rel tests/test_bktree.nim"
+  exec "nim c -r -d:release --path:src -o:build/test_vgraph_rel tests/test_vgraph.nim"
 
 task testCi, "Nim tests (CI subset, debug)":
   exec "nim c -r --path:src -o:build/test_percept tests/test_percept.nim"
@@ -101,7 +112,8 @@ task cexample, "C demo":
   exec makeExe & " -C examples/c"
 
 task pyDeps, "Install Python build deps (setuptools, Cython, pytest) if missing":
-  exec "python3 -m pip install --break-system-packages --quiet setuptools wheel \"Cython>=3.0.0\" pytest"
+  exec pythonExe & " -m pip install" & pipSystemFlag() &
+       " --quiet setuptools wheel \"Cython>=3.0.0\" pytest"
 
 # The extension links the vcc static lib on Windows, the shared lib elsewhere.
 task pyLib, "Build the library the Python extension links against":
@@ -111,7 +123,8 @@ task pyLib, "Build the library the Python extension links against":
     exec "nimble clib"
 
 task pyNotebookDeps, "Install notebook build deps (nbformat, nbclient, ipykernel) if missing":
-  exec "python3 -m pip install --break-system-packages --quiet nbformat nbclient ipykernel"
+  exec pythonExe & " -m pip install" & pipSystemFlag() &
+       " --quiet nbformat nbclient ipykernel"
 
 task buildCython, "Cython extension in-place":
   exec "nimble pyLib"

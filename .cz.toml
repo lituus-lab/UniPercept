@@ -2,3 +2,6 @@
 # Copyright 2026 lituus-lab
 [tool.commitizen]
 name = "cz_conventional_commits"
+version = "1.0.0"
+version_files = ["UniPercept.nimble:version"]
+tag_format = "v$version"
