@@ -7,7 +7,7 @@
 ## helpers wire decode -> gray -> hashes. The `up_*` C ABI (`src/UniPercept/c_api.nim`,
 ## header `include/UniPercept.h`) and the Cython binding (`py/unipercept/`)
 ## expose the same surface to C and Python.
-import std/[os, strutils, sequtils]
+import std/[strutils, sequtils]
 import contracts
 import UniPercept/gray
 export gray
@@ -20,16 +20,7 @@ export bktree
 import UniPercept/decode
 export decode
 
-func manifestVersion(text: string): string {.compileTime.} =
-  for line in text.splitLines:
-    if line.strip.startsWith('#'): continue
-    let fields = line.split('=', 1)
-    if fields.len == 2 and fields[0].strip == "version":
-      return fields[1].strip.strip(chars = {'"'})
-  raise newException(ValueError, "UniPercept.nimble has no version")
-
-const UniPerceptVersion* = manifestVersion(staticRead(
-  currentSourcePath.parentDir.parentDir / "UniPercept.nimble"))
+const UniPerceptVersion* = "1.0.0"
 
 type
   HashResult* = object
