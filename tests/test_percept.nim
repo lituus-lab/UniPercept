@@ -21,6 +21,60 @@ proc gradientRgb(invert = false): Image[uint8] =
       result.data[i + 1] = byte(if invert: 255 - y * 17 else: y * 17)
       result.data[i + 2] = byte(min(255, (x + y) * 8))
 
+## A photograph-sized image with structure at several scales: flat blocks
+## would hash identically whatever the decode, and prove nothing.
+proc detailedRgb(width, height: int): Image[uint8] =
+  result = newImage[uint8](width, height, csRgb)
+  for y in 0 ..< height:
+    for x in 0 ..< width:
+      let i = (y * width + x) * 3
+      let coarse = (x * 255) div width
+      let band = if (y div 37) mod 2 == 0: 40 else: 0
+      let fine = ((x * 7 + y * 13) mod 32) - 16
+      result.data[i + 0] = byte(clamp(coarse + fine, 0, 255))
+      result.data[i + 1] = byte(clamp((y * 255) div height + band, 0, 255))
+      result.data[i + 2] = byte(clamp(255 - coarse + band - fine, 0, 255))
+
+suite "scaled decode for hashing":
+  test "a reduced decode reports the size the file really is":
+    let path = getTempDir() / "unipercept_scaled_size.jpg"
+    writeFile(path, cast[string](encodeImage(detailedRgb(512, 384), efJpeg, 90)))
+    defer: removeFile(path)
+    let info = phashInfo(path)
+    # 512x384 is eight times the 32 pHash needs, so the decode reduced; the
+    # dimensions reported are the file's own regardless.
+    check info.width == 512
+    check info.height == 384
+
+  test "reducing the decode barely moves the hash":
+    # Both paths average the same pixels when 32 divides the block grid, and
+    # then agree exactly. They do not in general: a 4032x3024 photograph puts
+    # 126 blocks across 32 samples, so the two averages straddle block edges
+    # differently. Measured over a library of real photographs, that moved 8
+    # of 17 JPEG hashes by one or two bits of 64 -- an order below the three
+    # a 95% similarity threshold allows, so grouping is unaffected. This pins
+    # the bound; a larger drift would be a real change of behaviour.
+    let path = getTempDir() / "unipercept_scaled_drift.jpg"
+    let img = detailedRgb(1000, 750)
+    writeFile(path, cast[string](encodeImage(img, efJpeg, 92)))
+    defer: removeFile(path)
+    let reduced = phashInfo(path).hash
+    let raw = loadImage(path)
+    let full = pHash(toGrayscale(raw.data, raw.width, raw.height, 3))
+    check hammingDistance(reduced, full) <= 2
+
+  test "a file too small to reduce hashes exactly as it did":
+    let path = getTempDir() / "unipercept_scaled_small.jpg"
+    writeFile(path, cast[string](encodeImage(detailedRgb(64, 64), efJpeg, 92)))
+    defer: removeFile(path)
+    # 64x64 reduces to 8x8, short of the 32 pHash needs, so the decode is the
+    # full one. Assert that rather than infer it from the hashes agreeing: a
+    # reduction that slipped through would otherwise read as a hash change.
+    let analysed = loadImageForAnalysis(path, 32)
+    check analysed.image.width == 64 and analysed.image.height == 64
+    let full = pHash(toGrayscale(loadImage(path).data, 64, 64, 3))
+    check phashInfo(path).hash == full
+
 suite "unipercept end-to-end":
   test "version":
     check UniPerceptVersion == "1.0.0"

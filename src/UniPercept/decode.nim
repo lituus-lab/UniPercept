@@ -35,6 +35,38 @@ proc loadImage*(path: string): DecodedImage {.contractual.} =
     if ext in [".tga", ".targa"]: result = decodeTga(bytes)
     else: result = decodeImage(bytes)
 
+type AnalysedImage* = object
+  ## An image decoded for measurement, and the size it was decoded from.
+  image*: DecodedImage
+  sourceWidth*, sourceHeight*: int
+
+proc loadImageForAnalysis*(path: string;
+                           maxEdge: int): AnalysedImage {.contractual.} =
+  ## Read an image file, decoding no more finely than `maxEdge` needs, and
+  ## report the size it came from.
+  ##
+  ## A hash reduces the image to a few dozen samples, so decoding every pixel
+  ## of a 12 MP photograph first is work thrown away. What a format can skip is
+  ## its own business: JPEG reconstructs one sample per 8x8 block, everything
+  ## else decodes in full.
+  require:
+    path.len > 0
+    maxEdge > 0
+  ensure:
+    result.image.width > 0 and result.image.height > 0
+    result.sourceWidth >= result.image.width
+    result.sourceHeight >= result.image.height
+  body:
+    let ext = path.splitFile().ext.toLowerAscii()
+    let bytes = loadFileBytes(path)
+    if ext in [".tga", ".targa"]:
+      let full = decodeTga(bytes)
+      return AnalysedImage(image: full, sourceWidth: full.width,
+        sourceHeight: full.height)
+    let scaled = decodeImageScaled(bytes, maxEdge)
+    AnalysedImage(image: scaled.image, sourceWidth: scaled.sourceWidth,
+      sourceHeight: scaled.sourceHeight)
+
 proc loadImageFromMemory*(buffer: openArray[
     byte]): DecodedImage {.contractual.} =
   ## Decode an in-memory buffer via the byte-sniffing dispatcher. TGA cannot be
