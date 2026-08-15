@@ -54,10 +54,14 @@ proc phashInfo*(path: string): PHashResult {.contractual.} =
   ensure:
     result.width > 0 and result.height > 0
   body:
-    let img = loadImage(path)
+    # pHash lands on 32x32 whatever it is given, so the decode only has to
+    # clear that. The dimensions reported are the file's own, not the reduced
+    # ones: a caller recording them wants the real size.
+    let decoded = loadImageForAnalysis(path, 32)
+    let img = decoded.image
     result.hash = pHash(toGrayscale(img.data, img.width, img.height, img.channels))
-    result.width = img.width
-    result.height = img.height
+    result.width = decoded.sourceWidth
+    result.height = decoded.sourceHeight
 
 proc phash*(path: string): Hash {.contractual.} =
   ## pHash of an image file. See `phashInfo` when dimensions are also needed.
