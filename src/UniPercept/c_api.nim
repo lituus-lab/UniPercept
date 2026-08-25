@@ -87,10 +87,52 @@ const
   UP_PERCEPT_FMT_AUTO {.used.} = cint(0) # decode default (the else branch)
   UP_PERCEPT_FMT_TGA = cint(8)           # TGA has no magic; needs the hint
 
+
+# A shared library runs NimMain from DllMain (Windows) or an ELF constructor;
+# a static one has neither, so nothing initializes the Nim runtime. The first
+# entry point then enters Nim code whose globals were never set up and the
+# process faults. The static-library tasks pass -d:staticNoAutoInit; shared
+# builds must not, or NimMain runs twice.
+when defined(staticNoAutoInit):
+  # A once primitive, not a plain flag: two threads reaching an entry point
+  # together would both see the flag unset, both call NimMain, and the second
+  # would enter Nim code the first had not finished initializing. The platform
+  # primitives block the losers until the winner returns, which a flag cannot.
+  #
+  # C statics, not Nim globals: module initialization would reset a Nim one and
+  # NimMain would run again. NimMain is declared here too — the generated
+  # prototype comes after this section.
+  {.emit: """/*VARSECTION*/
+void NimMain(void);
+#ifdef _WIN32
+#  include <windows.h>
+static INIT_ONCE up_runtime_once = INIT_ONCE_STATIC_INIT;
+static BOOL CALLBACK up_runtime_init(PINIT_ONCE o, PVOID p, PVOID *c) {
+  (void)o; (void)p; (void)c; NimMain(); return TRUE;
+}
+static void up_runtime_ensure(void) {
+  InitOnceExecuteOnce(&up_runtime_once, up_runtime_init, NULL, NULL);
+}
+#else
+#  include <pthread.h>
+static pthread_once_t up_runtime_once = PTHREAD_ONCE_INIT;
+static void up_runtime_init(void) { NimMain(); }
+static void up_runtime_ensure(void) {
+  pthread_once(&up_runtime_once, up_runtime_init);
+}
+#endif
+""".}
+  template ensureRuntime() =
+    {.emit: "  up_runtime_ensure();".}
+else:
+  template ensureRuntime() = discard
+
+
 {.push exportc, cdecl, dynlib.}
 
 proc up_init() =
   ## Initialise the Nim runtime. The first call must be externally synchronized.
+  ensureRuntime()
   if initialized: return
   try:
     NimMain()
@@ -98,9 +140,12 @@ proc up_init() =
   except CatchableError, Defect:
     discard
 
-proc up_abi_version(): cint = cint(UniPerceptAbiVersion)
+proc up_abi_version(): cint =
+  ensureRuntime()
+  cint(UniPerceptAbiVersion)
 
 proc up_strerror(code: cint): cstring =
+  ensureRuntime()
   case code
   of UP_PERCEPT_OK: cstring"ok"
   of UP_PERCEPT_ERR_FORMAT: cstring"bad argument / unrecognized / truncated"
@@ -110,10 +155,12 @@ proc up_strerror(code: cint): cstring =
 
 proc up_version(): cstring =
   ## Static engine version string; do not free. Never raises.
+  ensureRuntime()
   cstring(UniPerceptVersion)
 
 proc up_grayscale(data: ptr uint8; length: csize_t; width, height,
     channels: cint; outData: ptr ptr uint8; outLen: ptr csize_t): cint =
+  ensureRuntime()
   if outData == nil or outLen == nil: return UP_PERCEPT_ERR_FORMAT
   outData[] = nil
   outLen[] = 0
@@ -140,6 +187,7 @@ proc up_grayscale(data: ptr uint8; length: csize_t; width, height,
 proc up_resize_gray(data: ptr uint8; length: csize_t; width, height,
     newWidth, newHeight: cint; outData: ptr ptr uint8;
     outLen: ptr csize_t): cint =
+  ensureRuntime()
   if outData == nil or outLen == nil: return UP_PERCEPT_ERR_FORMAT
   outData[] = nil
   outLen[] = 0
@@ -159,6 +207,7 @@ proc up_resize_gray(data: ptr uint8; length: csize_t; width, height,
 
 proc up_ahash_gray(data: ptr uint8; length: csize_t; width, height: cint;
     outHash: ptr uint64): cint =
+  ensureRuntime()
   if outHash == nil: return UP_PERCEPT_ERR_FORMAT
   try:
     outHash[] = uint64(aHash(grayFromC(data, length, width, height)))
@@ -168,6 +217,7 @@ proc up_ahash_gray(data: ptr uint8; length: csize_t; width, height: cint;
 
 proc up_dhash_gray(data: ptr uint8; length: csize_t; width, height: cint;
     outHash: ptr uint64): cint =
+  ensureRuntime()
   if outHash == nil: return UP_PERCEPT_ERR_FORMAT
   try:
     outHash[] = uint64(dHash(grayFromC(data, length, width, height)))
@@ -177,6 +227,7 @@ proc up_dhash_gray(data: ptr uint8; length: csize_t; width, height: cint;
 
 proc up_phash_gray(data: ptr uint8; length: csize_t; width, height: cint;
     outHash: ptr uint64): cint =
+  ensureRuntime()
   if outHash == nil: return UP_PERCEPT_ERR_FORMAT
   try:
     outHash[] = uint64(pHash(grayFromC(data, length, width, height)))
@@ -186,6 +237,7 @@ proc up_phash_gray(data: ptr uint8; length: csize_t; width, height: cint;
 
 proc up_blockhash_gray(data: ptr uint8; length: csize_t; width, height,
     bits: cint; outData: ptr ptr uint8; outLen: ptr csize_t): cint =
+  ensureRuntime()
   if outData == nil or outLen == nil: return UP_PERCEPT_ERR_FORMAT
   outData[] = nil
   outLen[] = 0
@@ -200,9 +252,12 @@ proc up_blockhash_gray(data: ptr uint8; length: csize_t; width, height,
   except CatchableError, Defect:
     UP_PERCEPT_ERR_FORMAT
 
-proc up_similarity(a, b: uint64): cdouble = cdouble(similarity(Hash(a), Hash(b)))
+proc up_similarity(a, b: uint64): cdouble =
+  ensureRuntime()
+  cdouble(similarity(Hash(a), Hash(b)))
 
 proc up_hash_hex(hash: uint64; outText: ptr char; capacity: csize_t): csize_t =
+  ensureRuntime()
   const Required = 17
   try:
     if outText != nil and capacity >= Required:
@@ -215,6 +270,7 @@ proc up_hash_hex(hash: uint64; outText: ptr char; capacity: csize_t): csize_t =
 
 proc up_bytes_hex(data: ptr uint8; length: csize_t; outText: ptr char;
     capacity: csize_t): csize_t =
+  ensureRuntime()
   if length > csize_t((high(int) - 1) div 2): return 0
   let required = int(length) * 2 + 1
   if length > 0 and data == nil: return 0
@@ -234,6 +290,7 @@ proc up_decode(data: ptr uint8; length: csize_t; fmt: cint;
   ## Decode an in-memory image. `fmt=UP_PERCEPT_FMT_AUTO` sniffs the magic;
   ## `UP_PERCEPT_FMT_TGA` decodes TGA (no magic). On success stores an opaque
   ## handle (free with up_free).
+  ensureRuntime()
   if outHandle == nil: return UP_PERCEPT_ERR_FORMAT
   outHandle[] = nil
   if data == nil or length == 0 or length > csize_t(high(int)):
@@ -257,6 +314,7 @@ proc up_decode(data: ptr uint8; length: csize_t; fmt: cint;
     UP_PERCEPT_ERR_FORMAT
 
 proc up_decode_file(path: cstring; outHandle: ptr pointer): cint =
+  ensureRuntime()
   if outHandle == nil: return UP_PERCEPT_ERR_FORMAT
   outHandle[] = nil
   if path == nil or path[0] == '\0': return UP_PERCEPT_ERR_FORMAT
@@ -273,22 +331,26 @@ proc up_decode_file(path: cstring; outHandle: ptr pointer): cint =
     UP_PERCEPT_ERR_FORMAT
 
 proc up_image_width(h: pointer): cint =
+  ensureRuntime()
   if not containsHandle(imageHandles, h): return 0
   try: cint(imgOf(h).img.width)
   except CatchableError, Defect: 0
 
 proc up_image_height(h: pointer): cint =
+  ensureRuntime()
   if not containsHandle(imageHandles, h): return 0
   try: cint(imgOf(h).img.height)
   except CatchableError, Defect: 0
 
 proc up_image_channels(h: pointer): cint =
+  ensureRuntime()
   if not containsHandle(imageHandles, h): return 0
   try: cint(imgOf(h).img.channels)
   except CatchableError, Defect: 0
 
 proc up_ahash(h: pointer): uint64 =
   ## Average hash, or 0 on a nil handle / failure. Never raises.
+  ensureRuntime()
   if not containsHandle(imageHandles, h): return 0'u64
   try:
     let hh = imgOf(h)
@@ -300,6 +362,7 @@ proc up_ahash(h: pointer): uint64 =
 
 proc up_dhash(h: pointer): uint64 =
   ## Difference hash, or 0 on a nil handle / failure. Never raises.
+  ensureRuntime()
   if not containsHandle(imageHandles, h): return 0'u64
   try:
     let hh = imgOf(h)
@@ -311,6 +374,7 @@ proc up_dhash(h: pointer): uint64 =
 
 proc up_phash(h: pointer): uint64 =
   ## Perceptual hash (DCT), or 0 on a nil handle / failure. Never raises.
+  ensureRuntime()
   if not containsHandle(imageHandles, h): return 0'u64
   try:
     let hh = imgOf(h)
@@ -327,6 +391,7 @@ proc up_blockhash(h: pointer; bits: cint; outData: ptr ptr uint8;
   ## `(bits*bits + 7) div 8`. Out-of-range `bits` returns UP_PERCEPT_ERR_FORMAT
   ## in every build — the kernel's `require` is a debug-only backstop, so the ABI
   ## never relies on it.
+  ensureRuntime()
   if outData == nil or outLen == nil: return UP_PERCEPT_ERR_FORMAT
   outData[] = nil
   outLen[] = 0
@@ -351,11 +416,13 @@ proc up_blockhash(h: pointer; bits: cint; outData: ptr ptr uint8;
 
 proc up_hamming(a, b: uint64): cint =
   ## Hamming distance (popcount of XOR). Never raises.
+  ensureRuntime()
   cint(hammingDistance(a, b))
 
 proc up_compute_file(path: cstring; outAHash, outDHash,
     outPHash: ptr uint64; outBlockhash: ptr ptr uint8;
     outBlockhashLen: ptr csize_t): cint =
+  ensureRuntime()
   if path == nil or path[0] == '\0' or outAHash == nil or outDHash == nil or
       outPHash == nil or outBlockhash == nil or outBlockhashLen == nil:
     return UP_PERCEPT_ERR_FORMAT
@@ -377,6 +444,7 @@ proc up_compute_file(path: cstring; outAHash, outDHash,
 
 proc up_phash_file(path: cstring; outHash: ptr uint64; outWidth,
     outHeight: ptr cint): cint =
+  ensureRuntime()
   if path == nil or path[0] == '\0' or outHash == nil or outWidth == nil or
       outHeight == nil:
     return UP_PERCEPT_ERR_FORMAT
@@ -392,6 +460,7 @@ proc up_phash_file(path: cstring; outHash: ptr uint64; outWidth,
     UP_PERCEPT_ERR_FORMAT
 
 proc up_ahash_file(path: cstring; outHash: ptr uint64): cint =
+  ensureRuntime()
   if path == nil or path[0] == '\0' or outHash == nil:
     return UP_PERCEPT_ERR_FORMAT
   try:
@@ -401,6 +470,7 @@ proc up_ahash_file(path: cstring; outHash: ptr uint64): cint =
     UP_PERCEPT_ERR_FORMAT
 
 proc up_dhash_file(path: cstring; outHash: ptr uint64): cint =
+  ensureRuntime()
   if path == nil or path[0] == '\0' or outHash == nil:
     return UP_PERCEPT_ERR_FORMAT
   try:
@@ -412,6 +482,7 @@ proc up_dhash_file(path: cstring; outHash: ptr uint64): cint =
 proc up_index_new(outHandle: ptr pointer): cint =
   ## Create an empty bk-tree index. On success stores an opaque handle (free
   ## with up_index_free).
+  ensureRuntime()
   if outHandle == nil: return UP_PERCEPT_ERR_FORMAT
   outHandle[] = nil
   try:
@@ -426,6 +497,7 @@ proc up_index_new(outHandle: ptr pointer): cint =
 
 proc up_index_insert(idx: pointer; id: int32; h: uint64): cint =
   ## Insert `id` at hash `h` into the index. Never raises.
+  ensureRuntime()
   if not containsHandle(indexHandles, idx): return UP_PERCEPT_ERR_FORMAT
   try:
     indexOf(idx).tree.insert(Hash(h), id)
@@ -434,6 +506,7 @@ proc up_index_insert(idx: pointer; id: int32; h: uint64): cint =
     UP_PERCEPT_ERR_FORMAT
 
 proc up_index_len(idx: pointer): csize_t =
+  ensureRuntime()
   if not containsHandle(indexHandles, idx): return 0
   try: csize_t(indexOf(idx).tree.len)
   except CatchableError, Defect: 0
@@ -444,6 +517,7 @@ proc up_index_query(idx: pointer; h: uint64; radius: cint;
   ## allocates *outIds as `2 * *outCount` int32s, interleaved
   ## `[id0, dist0, id1, dist1, ...]` (free with up_buffer_free); *outCount is the
   ## number of matches. A nil index or out-param returns UP_PERCEPT_ERR_FORMAT.
+  ensureRuntime()
   if outIds == nil or outCount == nil: return UP_PERCEPT_ERR_FORMAT
   outIds[] = nil
   outCount[] = 0
@@ -468,14 +542,17 @@ proc up_index_query(idx: pointer; h: uint64; radius: cint;
 
 proc up_index_free(idx: pointer) =
   ## Free an index handle. NULL is a no-op.
+  ensureRuntime()
   if unregisterHandle(indexHandles, idx): GC_unref(indexOf(idx))
 
 proc up_free(h: pointer) =
   ## Free a handle. NULL is a no-op.
+  ensureRuntime()
   if unregisterHandle(imageHandles, h): GC_unref(imgOf(h))
 
 proc up_buffer_free(p: pointer; len: csize_t) =
   ## Free a buffer returned by UniPercept. NULL is a no-op. `len` is ignored.
+  ensureRuntime()
   if p != nil: deallocShared(p)
 
 {.pop.}
