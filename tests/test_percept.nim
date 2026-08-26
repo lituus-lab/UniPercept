@@ -137,3 +137,36 @@ suite "unipercept end-to-end":
     check phash(tmp) == info.hash
     check ahash(tmp) == h.aHash
     check dhash(tmp) == h.dHash
+
+suite "a RAW reports the picture's size, not its preview's":
+  ## A vendor RAW keeps a small preview in IFD0 and the sensor image in a
+  ## SubIFD under a proprietary compression. Decoding the file yields the
+  ## preview, so a caller recording how big the photograph is would write down
+  ## the thumbnail's size -- 160x120 for a Nikon NEF, measured, where the
+  ## picture is 4992x3280.
+  const RawShaped = currentSourcePath.parentDir / "fixtures" /
+    "subifd-raw.tiff"
+
+  test "the decoded preview is not what gets reported":
+    let info = phashInfo(RawShaped)
+    check info.width == 4992
+    check info.height == 3280
+
+  test "the hash still comes from the pixels that were decoded":
+    # Reporting the stated size does not pretend the sensor data was read:
+    # the hash is of the preview, which is a rendering of the same picture.
+    let analysed = loadImageForAnalysis(RawShaped, 32)
+    check analysed.image.width == 4
+    check analysed.sourceWidth == 4992
+
+  test "an ordinary image is left alone":
+    # The stated size only wins where it is larger; a normal file's decoded
+    # image is its own size and nothing overrides it.
+    let path = getTempDir() / ("unipercept-plain-" &
+      $getCurrentProcessId() & ".png")
+    defer: removeFile(path)
+    writeFile(path, cast[string](encodeImage(detailedRgb(64, 48), efPng)))
+    let info = phashInfo(path)
+    check info.width == 64
+    check info.height == 48
+

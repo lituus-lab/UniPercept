@@ -5,8 +5,9 @@
 ## file and dispatches TGA by extension (it has no reliable header magic);
 ## every other supported format is sniffed from its bytes by
 ## `UniImage.decodeImage`. This replaces the former decoder FFI.
-import std/[os, strutils]
+import std/[os, strutils, tables]
 import UniImage/formats
+import UniImage/exif
 import contracts
 export UniImageException ## so callers (CLI, C ABI) can catch decode errors.
 export decodeTga ## surfaced for the C ABI TGA hint (no magic to sniff).
@@ -64,8 +65,29 @@ proc loadImageForAnalysis*(path: string;
       return AnalysedImage(image: full, sourceWidth: full.width,
         sourceHeight: full.height)
     let scaled = decodeImageScaled(bytes, maxEdge)
-    AnalysedImage(image: scaled.image, sourceWidth: scaled.sourceWidth,
-      sourceHeight: scaled.sourceHeight)
+    result = AnalysedImage(image: scaled.image,
+      sourceWidth: scaled.sourceWidth, sourceHeight: scaled.sourceHeight)
+    # A vendor RAW is a TIFF whose first directory holds the preview, not the
+    # photograph: decoding it yields a 160x120 thumbnail and reports that as
+    # the file's size. The sensor image sits in a sub-directory under a
+    # proprietary compression this does not read, but its dimensions are in
+    # the metadata, and a caller recording how big the picture is wants those.
+    if bytes.len >= 4 and
+        ((bytes[0] == 0x49'u8 and bytes[1] == 0x49'u8) or
+         (bytes[0] == 0x4D'u8 and bytes[1] == 0x4D'u8)):
+      let meta = readMetadataFromBytes(bytes)
+      let stated = (meta.allTags.getOrDefault("ImageWidth", ""),
+                    meta.allTags.getOrDefault("ImageHeight", ""))
+      try:
+        let width = parseInt(stated[0])
+        let height = parseInt(stated[1])
+        # Only upward: the ensure below requires the source to cover what was
+        # decoded, and a stated size smaller than the preview is not credible.
+        if width >= result.image.width and height >= result.image.height:
+          result.sourceWidth = width
+          result.sourceHeight = height
+      except ValueError:
+        discard
 
 proc loadImageFromMemory*(buffer: openArray[
     byte]): DecodedImage {.contractual.} =
