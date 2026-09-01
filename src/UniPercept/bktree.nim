@@ -29,6 +29,8 @@ proc len*(t: BkTree): int {.contractual.} =
     result = t.nodes.len
 
 proc isEmpty*(t: BkTree): bool {.contractual.} =
+  ## True when the tree holds nothing. Its own postcondition ties it to `len`,
+  ## so the two cannot come to disagree.
   ensure:
     result == (t.len == 0)
   body:

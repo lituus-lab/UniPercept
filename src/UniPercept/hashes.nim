@@ -207,12 +207,19 @@ proc blockhash*(img: GrayscaleImage; bits: int = 16): seq[
         result[i div 8] = result[i div 8] or (1'u8 shl (7 - (i mod 8)))
 
 proc hammingDistance*(a, b: Hash): int {.contractual.} =
+  ## How many of the 64 bits differ. This is the distance perceptual hashes
+  ## are compared with: two images are alike when few bits moved, and the
+  ## count says how many, not how much the pictures differ in any other sense.
   ensure:
     result >= 0 and result <= 64
   body:
     result = bitops.popcount(a xor b)
 
 proc similarity*(a, b: Hash): float {.contractual.} =
+  ## The Hamming distance as a fraction in `0.0 .. 1.0`, where 1.0 is an
+  ## identical hash. A convenience over `hammingDistance`, and a lossy one:
+  ## the threshold worth thinking about is a bit count, and dividing by 64
+  ## hides which count a given fraction stands for.
   ensure:
     result >= 0.0 and result <= 1.0
   body:

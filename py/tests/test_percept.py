@@ -20,8 +20,8 @@ def test_abi_version():
 
 
 def test_version():
-    assert unipercept.version() == "1.0.0"
-    assert unipercept.__version__ == "1.0.0"
+    assert unipercept.version() == "1.0.1"
+    assert unipercept.__version__ == "1.0.1"
 
 
 def test_decode_and_props():

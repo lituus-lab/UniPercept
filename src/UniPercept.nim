@@ -20,7 +20,7 @@ export bktree
 import UniPercept/decode
 export decode
 
-const UniPerceptVersion* = "1.0.0"
+const UniPerceptVersion* = "1.0.1"
 
 type
   HashResult* = object

@@ -77,7 +77,7 @@ suite "scaled decode for hashing":
 
 suite "unipercept end-to-end":
   test "version":
-    check UniPerceptVersion == "1.0.0"
+    check UniPerceptVersion == "1.0.1"
     check HeaderText.contains("#define UNIPERCEPT_VERSION \"" &
         UniPerceptVersion & "\"")
     check PyProjectText.contains("version = \"" & UniPerceptVersion & "\"")
