@@ -30,6 +30,10 @@ CI: 3-OS Nim matrix + C ABI + Python.
   `-d:danger`: the ABI parses untrusted image bytes (via UniImage), so Nim's
   bounds checks are kept as defense-in-depth and `CatchableError`/`Defect` are
   trapped at the boundary.
+- A change to `c_api.nim` is verified by `ctest`, `pyTest` and, where there
+  is one, `wasmTest`: three linkages, three runtime bootstraps. A green
+  `ctest` alone proved nothing the day the shared build lost its
+  initializer and every registry answered with the sentinel.
 - C symbols `up_*`; lib `libUniPercept`; header `UniPercept.h`.
 - Layers `gray < resize < hashes < decode < c_api`, enforced by
   `nimble checkVGraph`. `gray`/`resize`/`hashes` are pure (no UniImage import);
