@@ -3,11 +3,19 @@
 import std/unittest
 import ../tools/vgraph
 
+# The rule itself now lives in vgraph.cfg under [confined]; the tool is the
+# same file in every Uni* repo. This checks the mechanism against the rule
+# this repo declares.
+const Confined = @[("UniImage", "src/UniPercept/decode.nim")]
+
 suite "vgraph family boundary":
   test "only decode may import UniImage":
-    check mayImportUniImage("src/UniPercept/decode.nim", "UniImage")
+    check mayImport("src/UniPercept/decode.nim", "UniImage", Confined)
     for module in ["gray", "resize", "hashes"]:
-      check not mayImportUniImage("src/UniPercept/" & module & ".nim",
-          "UniImage")
-      check not mayImportUniImage("src/UniPercept/" & module & ".nim",
-          "UniImage/core")
+      check not mayImport("src/UniPercept/" & module & ".nim", "UniImage",
+          Confined)
+      check not mayImport("src/UniPercept/" & module & ".nim", "UniImage/core",
+          Confined)
+
+  test "an unconfined package is unaffected":
+    check mayImport("src/UniPercept/gray.nim", "UniColor", Confined)
