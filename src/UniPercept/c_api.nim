@@ -33,7 +33,6 @@ proc imgOf(p: pointer): ImgHandle {.inline.} = cast[ImgHandle](p)
 proc indexOf(p: pointer): IndexHandle {.inline.} = cast[IndexHandle](p)
 
 var
-  initialized: bool
   handleLock: Lock
   imageHandles, indexHandles: HashSet[pointer]
 
@@ -132,13 +131,14 @@ else:
 
 proc up_init() =
   ## Initialise the Nim runtime. The first call must be externally synchronized.
+  ##
+  ## The work is `ensureRuntime`, which every entry point calls. It used to be
+  ## followed by a direct NimMain, so under -d:staticNoAutoInit the module
+  ## initializers ran twice, rebuilding every global while the first set was
+  ## still live -- and the flag meant to prevent it was itself a Nim global,
+  ## which that second run reset. Reproduced in UniColor: the second
+  ## `uc_palette_make` of a process died inside Nim's allocator.
   ensureRuntime()
-  if initialized: return
-  try:
-    NimMain()
-    initialized = true
-  except CatchableError, Defect:
-    discard
 
 proc up_abi_version(): cint =
   ensureRuntime()
