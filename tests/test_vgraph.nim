@@ -19,3 +19,9 @@ suite "vgraph family boundary":
 
   test "an unconfined package is unaffected":
     check mayImport("src/UniPercept/gray.nim", "UniColor", Confined)
+
+  test "a Windows path is the same path":
+    # walkDirRec yields backslashes there; the rule is written with forward
+    # slashes. Comparing them raw accused decode.nim of its own import.
+    check mayImport("src\\UniPercept\\decode.nim", "UniImage", Confined)
+    check not mayImport("src\\UniPercept\\gray.nim", "UniImage", Confined)
