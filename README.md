@@ -69,7 +69,7 @@ The PyPI distribution is named `UniPercept-lituus`; the import remains
 `unipercept`:
 
 ```bash
-pip install UniPercept-lituus
+pip install lituus-unipercept
 ```
 
 ```python

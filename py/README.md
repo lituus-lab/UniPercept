@@ -4,7 +4,7 @@ Perceptual image hashing and similarity search backed by the native
 [UniPercept](https://github.com/lituus-lab/UniPercept) engine.
 
 ```bash
-pip install UniPercept-lituus
+pip install lituus-unipercept
 ```
 
 The installed module is named `unipercept`:

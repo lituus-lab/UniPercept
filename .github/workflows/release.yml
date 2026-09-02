@@ -171,7 +171,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/project/UniPercept-lituus/
+      url: https://pypi.org/project/lituus-unipercept/
     permissions:
       id-token: write
     steps:

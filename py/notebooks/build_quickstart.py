@@ -23,7 +23,7 @@ self-contained wheel: the native library travels inside the package, so
 installing it needs neither Nim nor a compiler.
 
 ```
-pip install UniPercept-lituus
+pip install lituus-unipercept
 ```
 
 CI executes this notebook against the wheel the release actually publishes, so
